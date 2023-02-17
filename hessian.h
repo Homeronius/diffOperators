@@ -38,11 +38,11 @@ class DiffOpBase {
             if constexpr (Diff == DiffType::Centered) {
                 return 0.5 * hInv_m[D] * (-1.0*shift_f(-1,i,j,k) + shift_f(1,i,j,k));
             } else if constexpr (Diff == DiffType::Forward) {
-                return 0.5 * hInv_m[D] * (2.0*shift_f(0,i,j,k) - 5.0*shift_f(1,i,j,k) +
-                                          4.0*shift_f(2,i,j,k) - 1.0*shift_f(3,i,j,k));
+                return 0.5 * hInv_m[D] * (-1.5*shift_f(0,i,j,k) + 2.0*shift_f(1,i,j,k) -
+                                          0.5*shift_f(2,i,j,k));
             } else if constexpr (Diff == DiffType::Backward) {
-                return 0.5 * hInv_m[D] * (2.0*shift_f(0,i,j,k) - 5.0*shift_f(-1,i,j,k) +
-                                          4.0*shift_f(-2,i,j,k) - 1.0*shift_f(-3,i,j,k));
+                return 0.5 * hInv_m[D] * (1.5*shift_f(0,i,j,k) - 2.0*shift_f(-1,i,j,k) +
+                                          0.5*shift_f(-2,i,j,k));
             }
         }
 
