@@ -1,26 +1,37 @@
 #include "hessian.h"
 
 int main(){
-    size_t N = 20;
+    size_t N = 15;
     size_t nghost = 1;
     size_t N_ext = N+nghost;
     std::array<double, 3> h{1e-1, 1e-1, 1e-1};
-    Field<double> field(N+nghost, h, 1.0);
+    Field<double> field(N+nghost, h);
     Field<double> field_result(N+nghost, h);
+    Field<double> field_derivative(N+nghost, h);
+
+    // Initialize
+    field.init_x2y2z2();
+    field_derivative.init_x2y2z2_deriv();
 
     // Construct differential operator
-    DiffOpBase<Dim::X, double, DiffType::Backward> xDiff(field);
-    field.print(5);
+    DiffOpChain<Dim::X, double, DiffType::Forward, 
+                DiffOpChain<Dim::Z, double, DiffType::Centered,
+                            Field<double>>> xzDiff(field);
 
-    for(size_t i = nghost; i < N_ext-nghost; ++i){
-        for(size_t j = nghost; j < N_ext-nghost; ++j){
-            for(size_t k = nghost; k < N_ext-nghost; ++k){
-                field_result(i,j,k) = xDiff(i,j,k);
+    double error = 0.0;
+    for(size_t i = 2*nghost; i < N_ext-2*nghost; ++i){
+        for(size_t j = 2*nghost; j < N_ext-2*nghost; ++j){
+            for(size_t k = 2*nghost; k < N_ext-2*nghost; ++k){
+                double approx_value = xzDiff(Index({i,j,k},N_ext));
+                field_result(i,j,k) = approx_value;
+
+                // Compute relative error
+                error += relative_error(field_derivative(i,j,k), approx_value);
             }
         }
     }
 
-    field_result.print(10);
+    std::cout << "Relative Error: " << std::setw(10) << error << std::endl;
 
     return 0;
 }

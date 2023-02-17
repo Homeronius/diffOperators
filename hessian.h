@@ -1,59 +1,48 @@
 #ifndef hessian_h
 #define hessian_h
 
+#include <functional>
 #include "field.h"
 
-double gaussian(double x, double y, double z, double sigma = 1.0, double mu = 0.5) { 
-    double pi = std::acos(-1.0);                                                     
-    double prefactor =                                                               
-        (1 / std::sqrt(2 * 2 * 2 * pi * pi * pi)) * (1 / (sigma * sigma * sigma));   
-    double r2 = (x - mu) * (x - mu) + (y - mu) * (y - mu) + (z - mu) * (z - mu);     
-                                                                                     
-    return -prefactor * std::exp(-r2 / (2 * sigma * sigma));                         
-}                                                                                    
 
+enum DiffType {Centered, Forward, Backward};
 
-enum DiffType {Forward, Backward, Centered};
-enum Dim {X, Y, Z};
+// Stencil definitions along a template specified dimension
+template<Dim D, typename T, class Callable>
+inline T centered_stencil(Index idx, T hInv, Callable F){
+    return 0.5 * hInv * (-1.0*F(idx.get_shifted<D>(-1)) + F(idx.get_shifted<D>(1)));
+}
 
+template<Dim D, typename T, class Callable>
+inline T forward_stencil(Index idx, T hInv, Callable F){
+    return hInv * (-1.5*F(idx) + 2.0*F(idx.get_shifted<D>(1)) - 0.5*F(idx.get_shifted<D>(2)));
+}
 
-// Specializations for the different differntial stencils
-template<Dim D, typename T, DiffType Diff>
-class DiffOpBase {
+template<Dim D, typename T, class Callable>
+inline T backward_stencil(Index idx, T hInv, Callable F){
+    return hInv * (1.5*F(idx) - 2.0*F(idx.get_shifted<D>(-1)) + 0.5*F(idx.get_shifted<D>(-2)));
+}
+
+// Specialization to chain stencil operators
+template<Dim D, typename T, DiffType Diff, class C>
+class DiffOpChain {
     public: 
-        DiffOpBase(Field<T>& field)  : f_m(field), hInv_m(field.get_hInv()) {}
+        DiffOpChain(Field<T>& field)  : f_m(field), hInv_m(field.get_hInv()), leftOp(field) {}
         
-        inline T shift_f(size_t shift, size_t i, size_t j, size_t k) const {
-            if constexpr (D == Dim::X) {
-                return f_m(i+shift,j,k);
-            } else if constexpr (D == Dim::Y) {
-                return f_m(i,j+shift,k);
-            } else if constexpr (D == Dim::Z) {
-                return f_m(i,j,k+shift);
-            }
-        }
-
-       
-        inline T operator()(size_t i, size_t j, size_t k) const {
+        inline T operator()(Index idx) const {
             if constexpr (Diff == DiffType::Centered) {
-                return 0.5 * hInv_m[D] * (-1.0*shift_f(-1,i,j,k) + shift_f(1,i,j,k));
+                return centered_stencil<D,T,C>(idx, hInv_m[D], leftOp);
             } else if constexpr (Diff == DiffType::Forward) {
-                return 0.5 * hInv_m[D] * (-1.5*shift_f(0,i,j,k) + 2.0*shift_f(1,i,j,k) -
-                                          0.5*shift_f(2,i,j,k));
+                return forward_stencil<D,T,C>(idx, hInv_m[D], leftOp);
             } else if constexpr (Diff == DiffType::Backward) {
-                return 0.5 * hInv_m[D] * (1.5*shift_f(0,i,j,k) - 2.0*shift_f(-1,i,j,k) +
-                                          0.5*shift_f(-2,i,j,k));
+                return backward_stencil<D,T,C>(idx, hInv_m[D], leftOp);
             }
         }
 
     private:
         Field<T>& f_m;
         std::array<T, 3> hInv_m;
+        C leftOp;
 };
-
-//template<Dim D, typename T, class C>
-//class DiffOp {
-
-//};
 
 #endif // hessian_h
