@@ -4,7 +4,7 @@ int main(){
     size_t N = 15;
     size_t nghost = 1;
     size_t N_ext = N+nghost;
-    std::array<double, 3> h{1e-1, 1e-1, 1e-1};
+    typename Field<double>::vector3d_t h{1e-1, 1e-1, 1e-1};
     Field<double> field(N+nghost, h);
     Field<double> field_result(N+nghost, h);
     Field<double> field_derivative(N+nghost, h);
@@ -17,6 +17,8 @@ int main(){
     DiffOpChain<Dim::X, double, DiffType::Forward, 
                 DiffOpChain<Dim::Z, double, DiffType::Centered,
                             Field<double>>> xzDiff(field);
+
+    GeneralizedHessOp<double,DiffType::Centered,DiffType::Centered,DiffType::Centered> hessOp(field);
 
     double error = 0.0;
     for(size_t i = 2*nghost; i < N_ext-2*nghost; ++i){

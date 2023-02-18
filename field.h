@@ -51,7 +51,9 @@ struct Index {
 template <typename T>
 class Field {
     public:
-        Field(size_t N, std::array<T, 3> h) : N_m(N), h_m(h), f_m(std::vector<T>(N*N*N)){
+        typedef std::array<T, 3> vector3d_t;
+        typedef std::array<vector3d_t, 3> matrix3d_t;
+        Field(size_t N, vector3d_t h) : N_m(N), h_m(h), f_m(std::vector<T>(N*N*N)){
             hInv_m[0] = 1.0 / h[0];
             hInv_m[1] = 1.0 / h[1];
             hInv_m[2] = 1.0 / h[2];
@@ -100,7 +102,7 @@ class Field {
             }
         }
 
-        std::array<T, 3> get_hInv() const {return hInv_m;};
+        vector3d_t getMeshSpacing() const {return hInv_m;};
 
         T operator()(size_t i, size_t j, size_t k) const {return f_m[index(i,j,k)];};
 
@@ -120,7 +122,6 @@ class Field {
             std::cout << "\n\n" << std::endl;
         }
 
-    
 
     private:
         inline size_t index(size_t i, size_t j, size_t k) const {
@@ -130,10 +131,26 @@ class Field {
         // Number of grid points in each dimension
         const size_t N_m;
         // Mesh widths in each dimension
-        const std::array<T, 3> h_m;
-        std::array<T, 3> hInv_m;
+        const vector3d_t h_m;
+        vector3d_t hInv_m;
         // Field data
         std::vector<T> f_m;
 };
+
+
+// Special overloaded operators for defined datastructures used in Field
+template<typename T>
+typename Field<T>::vector3d_t add_vector3d(typename Field<T>::vector3d_t &vec1,
+                                            typename Field<T>::vector3d_t &vec2,
+                                            typename Field<T>::vector3d_t &vec3) {
+            return {vec1[0]+vec2[0]+vec3[0],
+                    vec1[1]+vec2[1]+vec3[1],
+                    vec1[2]+vec2[2]+vec3[2]};
+}
+    
+template<typename T>
+inline typename Field<T>::vector3d_t scale_vector3d(typename Field<T>::vector3d_t vec1, T scalar1){
+    return {vec1[0]*scalar1, vec1[1]*scalar1, vec1[2]*scalar1};
+}
 
 #endif // field_h
