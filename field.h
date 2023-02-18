@@ -49,6 +49,24 @@ struct Index {
     size_t n;
 };
 
+double gaussian(double x, double y, double z, double sigma = 1.0, double mu = 0.5) {
+	double pi = std::acos(-1.0);
+    double prefactor = (1 / std::sqrt(2 * 2 * 2 * pi * pi * pi)) * (1 / (sigma * sigma * sigma));
+	double r2 = (x - mu) * (x - mu) + (y - mu) * (y - mu) + (z - mu) * (z - mu);
+
+	return -prefactor * std::exp(-r2 / (2 * sigma * sigma));
+}
+
+template<typename T>
+T x2y2z2(T x, T y, T z) {
+    return x*x*z+y*y+z*z*x;
+}
+
+template<typename T>
+T x2y2z2_deriv(T x, T y, T z) {
+    return 2.0*x+2.0*z;
+}
+
 
 template <typename T>
 class Field {
@@ -70,38 +88,29 @@ class Field {
 			std::generate(f_m.begin(), f_m.end(), [&](){ return dist(gen); });
         }
 
-        T x2y2z2(T x, T y, T z) {
-            return x*x*z+y*y+z*z*x;
-        }
-
-        T x2y2z2_deriv(T x, T y, T z) {
-            return 2.0*x+2.0*z;
-        }
-
-        void init_x2y2z2(){
+		void init_with_function(std::function<T(T,T,T)> initFunc){
             for(size_t i = 0; i < N_m; ++i){
                 for(size_t j = 0; j < N_m; ++j){
                     for(size_t k = 0; k < N_m; ++k){
                         const T x = h_m[0]*i;
                         const T y = h_m[1]*j;
                         const T z = h_m[2]*k;
-                        f_m[index(i,j,k)] = x2y2z2(x,y,z);
+                        f_m[index(i,j,k)] = initFunc(x,y,z);
                     }
                 }
             }
+		}
+		
+        void init_x2y2z2(){
+            init_with_function([](T x, T y, T z){ return x2y2z2(x,y,z); });
         }
         
         void init_x2y2z2_deriv(){
-            for(size_t i = 0; i < N_m; ++i){
-                for(size_t j = 0; j < N_m; ++j){
-                    for(size_t k = 0; k < N_m; ++k){
-                        const T x = h_m[0]*i;
-                        const T y = h_m[1]*j;
-                        const T z = h_m[2]*k;
-                        f_m[index(i,j,k)] = x2y2z2_deriv(x,y,z);
-                    }
-                }
-            }
+            init_with_function([](T x, T y, T z){ return x2y2z2_deriv(x,y,z); });
+        }
+
+        void init_gaussian(){
+            init_with_function([](T x, T y, T z){ return gaussian(x,y,z); });
         }
 
         vector3d_t getMeshSpacing() const {return hInv_m;};
@@ -139,20 +148,76 @@ class Field {
         std::vector<T> f_m;
 };
 
+class MatrixField {
+    public:
+        typedef Eigen::Vector3d vector3d_t;
+        typedef Eigen::Matrix3d matrix3d_t;
+        MatrixField(size_t N, vector3d_t h) : N_m(N), h_m(h), f_m(std::vector<matrix3d_t>(N*N*N)){
+            hInv_m[0] = 1.0 / h[0];
+            hInv_m[1] = 1.0 / h[1];
+            hInv_m[2] = 1.0 / h[2];
+        }
 
-// Special overloaded operators for defined datastructures used in Field
-template<typename T>
-typename Field<T>::vector3d_t add_vector3d(typename Field<T>::vector3d_t &vec1,
-                                            typename Field<T>::vector3d_t &vec2,
-                                            typename Field<T>::vector3d_t &vec3) {
-            return {vec1[0]+vec2[0]+vec3[0],
-                    vec1[1]+vec2[1]+vec3[1],
-                    vec1[2]+vec2[2]+vec3[2]};
-}
-    
-template<typename T>
-inline typename Field<T>::vector3d_t scale_vector3d(typename Field<T>::vector3d_t vec1, T scalar1){
-    return {vec1[0]*scalar1, vec1[1]*scalar1, vec1[2]*scalar1};
-}
+        vector3d_t getMeshSpacing() const {return hInv_m;};
+
+        matrix3d_t operator()(size_t i, size_t j, size_t k) const {return f_m[index(i,j,k)];};
+
+        matrix3d_t& operator()(size_t i, size_t j, size_t k) {return f_m[index(i,j,k)];};
+
+        matrix3d_t operator()(Index idx) const {return f_m[idx.ravel()];};
+
+        matrix3d_t& operator()(Index idx) {return f_m[idx.ravel()];};
+
+		// Initialize with hessian of gaussian defined by `gaussian`
+		void initGaussHess() {
+			double mu = 0.5;
+            for(size_t i = 0; i < N_m; ++i){
+                for(size_t j = 0; j < N_m; ++j){
+                    for(size_t k = 0; k < N_m; ++k){
+                        const double x = h_m[0]*i;
+                        const double y = h_m[1]*j;
+                        const double z = h_m[2]*k;
+						f_m[index(i, j, k)].row(0) = vector3d_t(                                     
+							((x - mu) * (x - mu) - 1.0) * gaussian(x, y, z), 
+							(x - mu) * (y - mu) * gaussian(x, y, z),         
+							(x - mu) * (z - mu) * gaussian(x, y, z));        
+						f_m[index(i, j, k)].row(1) = vector3d_t(
+							(x - mu) * (y - mu) * gaussian(x, y, z),         
+							((y - mu) * (y - mu) - 1.0) * gaussian(x, y, z), 
+							(y - mu) * (z - mu) * gaussian(x, y, z));        
+						f_m[index(i, j, k)].row(2) = vector3d_t(
+							(x - mu) * (z - mu) * gaussian(x, y, z),         
+							(y - mu) * (z - mu) * gaussian(x, y, z),         
+							((z - mu) * (z - mu) - 1.0) * gaussian(x, y, z));
+                    }
+                }
+            }
+		}
+
+
+        void print(size_t slice_k) {
+            for(size_t i = 0; i < N_m; ++i){
+                for(size_t j = 0; j < N_m; ++j){
+                    std::cout << std::setprecision(2) << f_m[index(i,j,slice_k)] << " ";
+                }
+                std::cout << '\n';
+            }
+            std::cout << "\n\n" << std::endl;
+        }
+
+
+    private:
+        inline size_t index(size_t i, size_t j, size_t k) const {
+            return i*N_m*N_m + j*N_m + k;
+        }
+
+        // Number of grid points in each dimension
+        const size_t N_m;
+        // Mesh widths in each dimension
+        const vector3d_t h_m;
+        vector3d_t hInv_m;
+        // Field data
+        std::vector<matrix3d_t> f_m;
+};
 
 #endif // field_h
