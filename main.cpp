@@ -15,10 +15,10 @@ int main(){
 
     // Construct differential operator
     DiffOpChain<Dim::X, double, DiffType::Forward, 
-                DiffOpChain<Dim::Z, double, DiffType::Centered,
+                DiffOpChain<Dim::Z, double, DiffType::Backward,
                             Field<double>>> xzDiff(field);
 
-    GeneralizedHessOp<double,DiffType::Centered,DiffType::Centered,DiffType::Centered> hessOp(field);
+    //GeneralizedHessOp<double,DiffType::Centered,DiffType::Centered,DiffType::Centered> hessOp(field);
 
     double error = 0.0;
     for(size_t i = 2*nghost; i < N_ext-2*nghost; ++i){

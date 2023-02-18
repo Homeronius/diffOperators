@@ -11,6 +11,8 @@
 #include <random>
 #include <tuple>
 
+#include <Eigen/Dense>
+
 enum Dim {X, Y, Z};
 
 template<typename T>
@@ -51,8 +53,8 @@ struct Index {
 template <typename T>
 class Field {
     public:
-        typedef std::array<T, 3> vector3d_t;
-        typedef std::array<vector3d_t, 3> matrix3d_t;
+        typedef Eigen::Vector3d vector3d_t;
+        typedef Eigen::Matrix3d matrix3d_t;
         Field(size_t N, vector3d_t h) : N_m(N), h_m(h), f_m(std::vector<T>(N*N*N)){
             hInv_m[0] = 1.0 / h[0];
             hInv_m[1] = 1.0 / h[1];
