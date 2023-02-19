@@ -15,16 +15,34 @@
 
 enum Dim {X, Y, Z};
 
+// Taken from https://en.cppreference.com/w/cpp/types/numeric_limits/epsilon
+template<class T>
+typename std::enable_if<!std::numeric_limits<T>::is_integer, bool>::type
+    almost_equal(T x, T y, int ulp)
+{
+    // the machine epsilon has to be scaled to the magnitude of the values used
+    // and multiplied by the desired precision in ULPs (units in the last place)
+    return std::fabs(x-y) <= std::numeric_limits<T>::epsilon() * std::fabs(x+y) * ulp
+        // unless the result is subnormal
+        || std::fabs(x-y) < std::numeric_limits<T>::min();
+}
+
 template<typename T>
-T relative_error(T x, T x_appr){ return std::abs((x - x_appr) / x);}
+T relative_error(T x, T x_appr){ 
+    if (almost_equal(x, x_appr, 2)){
+        return 0.0;
+    } else {
+        return std::abs((x - x_appr) / x);
+    }
+}
 
 struct Index {
     typedef std::tuple<size_t,size_t,size_t> idx_tuple_t;
     Index(idx_tuple_t idx_arg, size_t N) : idx(idx_arg), n(N) {}
     Index(size_t raveled_idx) : idx(unravel(raveled_idx)) {}
 
-    inline size_t ravel(){return std::get<0>(idx)*n*n + std::get<1>(idx)*n + std::get<2>(idx);}
-    inline idx_tuple_t unravel(size_t raveled_idx){
+    inline size_t ravel() const {return std::get<0>(idx)*n*n + std::get<1>(idx)*n + std::get<2>(idx);}
+    inline idx_tuple_t unravel(size_t raveled_idx) const {
         size_t i,j,k;
         i = raveled_idx / (n*n);
         j = raveled_idx / n;
@@ -33,7 +51,7 @@ struct Index {
     }
 
     template<Dim D>
-    inline Index get_shifted(size_t shift) {
+    inline Index get_shifted(size_t shift) const {
         Index shifted_idx(idx, n);
         if constexpr (D == Dim::X) {
             std::get<0>(shifted_idx.idx) += shift;
@@ -123,7 +141,7 @@ class Field {
 
         T& operator()(Index idx) {return f_m[idx.ravel()];};
 
-        void print(size_t slice_k) {
+        void print(size_t slice_k) const {
             for(size_t i = 0; i < N_m; ++i){
                 for(size_t j = 0; j < N_m; ++j){
                     std::cout << std::setprecision(2) << f_m[index(i,j,slice_k)] << " ";
@@ -195,7 +213,7 @@ class MatrixField {
 		}
 
 
-        void print(size_t slice_k) {
+        void print(size_t slice_k) const {
             for(size_t i = 0; i < N_m; ++i){
                 for(size_t j = 0; j < N_m; ++j){
                     std::cout << std::setprecision(2) << f_m[index(i,j,slice_k)] << " ";
