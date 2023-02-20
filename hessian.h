@@ -4,23 +4,29 @@
 #include <functional>
 #include "field.h"
 
+using namespace Mesh;
 
-enum DiffType {Centered, Forward, Backward};
+enum DiffType {Centered, Forward, Backward, CenteredDeriv2};
 
 // Stencil definitions along a template specified dimension
 template<Dim D, typename T, class Callable>
 inline T centered_stencil(const Index &idx, const T &hInv, const Callable &F){
-    return 0.5 * hInv * (-1.0*F(idx.get_shifted<D>(-1)) + F(idx.get_shifted<D>(1)));
+    return 0.5 * hInv * (- F(idx.get_shifted<D>(-1)) + F(idx.get_shifted<D>(1)));
+}
+
+template<Dim D, typename T, class Callable>
+inline T centered_stencil_deriv2(const Index &idx, const T &hInv, const Callable &F){
+    return hInv * hInv * (F(idx.get_shifted<D>(-1)) - 2.0*F(idx) + F(idx.get_shifted<D>(1)));
 }
 
 template<Dim D, typename T, class Callable>
 inline T forward_stencil(const Index &idx, const T &hInv, const Callable &F){
-    return hInv * (-1.5*F(idx) + 2.0*F(idx.get_shifted<D>(1)) - 0.5*F(idx.get_shifted<D>(2)));
+    return 0.5 * hInv * (-3.0*F(idx) + 4.0*F(idx.get_shifted<D>(1)) - F(idx.get_shifted<D>(2)));
 }
 
 template<Dim D, typename T, class Callable>
 inline T backward_stencil(const Index &idx, const T &hInv, const Callable &F){
-    return hInv * (1.5*F(idx) - 2.0*F(idx.get_shifted<D>(-1)) + 0.5*F(idx.get_shifted<D>(-2)));
+    return 0.5 * hInv * (3.0*F(idx) - 4.0*F(idx.get_shifted<D>(-1)) + F(idx.get_shifted<D>(-2)));
 }
 
 
@@ -29,17 +35,18 @@ inline T backward_stencil(const Index &idx, const T &hInv, const Callable &F){
 template<Dim D, typename T, DiffType Diff, class C>
 class DiffOpChain {
     public: 
-        DiffOpChain(Field<T>& field) : f_m(field), hInvVector_m(field.getMeshSpacing()), leftOp(field) {}
+        DiffOpChain(Field<T>& field) : f_m(field), hInvVector_m(field.getInvMeshSpacing()), leftOp(field) {}
         
         const inline T operator()(Index idx) const {
             if constexpr      (Diff == DiffType::Centered) { return centered_stencil<D,T,C>(idx, hInvVector_m[D], leftOp); }
             else if constexpr (Diff == DiffType::Forward)  { return forward_stencil<D,T,C>(idx, hInvVector_m[D], leftOp); }
             else if constexpr (Diff == DiffType::Backward) { return backward_stencil<D,T,C>(idx, hInvVector_m[D], leftOp); }
+            else if constexpr (Diff == DiffType::CenteredDeriv2) { return centered_stencil_deriv2<D,T,C>(idx, hInvVector_m[D], leftOp); }
         }
 
     private:
         Field<T>& f_m;
-        typename Field<T>::vector3d_t hInvVector_m;
+        vector3d_t hInvVector_m;
         C leftOp;
 };
 
@@ -89,9 +96,9 @@ class GeneralizedHessOp {
         }
         
         // Compute Hessian of specific Index `idx`
-        const inline typename Field<T>::matrix3d_t operator()(Index idx) const {
-            typename Field<T>::vector3d_t row_1, row_2, row_3;
-            typename Field<T>::matrix3d_t hess_matrix;
+        const inline matrix3d_t operator()(Index idx) const {
+            vector3d_t row_1, row_2, row_3;
+            matrix3d_t hess_matrix;
             hess_matrix.row(0) = gen_row1_m(idx);
             hess_matrix.row(1) = gen_row2_m(idx);
             hess_matrix.row(2) = gen_row3_m(idx);
@@ -100,10 +107,10 @@ class GeneralizedHessOp {
 
     private:
         Field<T>& f_m;
-        std::function<typename Field<T>::vector3d_t(Index)> gen_row1_m, gen_row2_m, gen_row3_m;
-        const typename Field<T>::vector3d_t xvector_m = {1.0, 0.0, 0.0};
-        const typename Field<T>::vector3d_t yvector_m = {0.0, 1.0, 0.0};
-        const typename Field<T>::vector3d_t zvector_m = {0.0, 0.0, 1.0};
+        std::function<vector3d_t(Index)> gen_row1_m, gen_row2_m, gen_row3_m;
+        vector3d_t xvector_m = {1.0, 0.0, 0.0};
+        vector3d_t yvector_m = {0.0, 1.0, 0.0};
+        vector3d_t zvector_m = {0.0, 0.0, 1.0};
 };
 
 

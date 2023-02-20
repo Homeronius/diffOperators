@@ -13,7 +13,13 @@
 
 #include <Eigen/Dense>
 
+namespace Mesh {
+
 enum Dim {X, Y, Z};
+
+typedef Eigen::Vector3d vector3d_t;
+typedef Eigen::Vector3i vector3i_t;
+typedef Eigen::Matrix3d matrix3d_t;
 
 // Taken from https://en.cppreference.com/w/cpp/types/numeric_limits/epsilon
 template<class T>
@@ -38,15 +44,15 @@ T relative_error(T x, T x_appr){
 
 struct Index {
     typedef std::tuple<size_t,size_t,size_t> idx_tuple_t;
-    Index(idx_tuple_t idx_arg, size_t N) : idx(idx_arg), n(N) {}
+    Index(idx_tuple_t idx_arg, vector3i_t N) : idx(idx_arg), n(N) {}
     Index(size_t raveled_idx) : idx(unravel(raveled_idx)) {}
 
-    inline size_t ravel() const {return std::get<0>(idx)*n*n + std::get<1>(idx)*n + std::get<2>(idx);}
+    inline size_t ravel() const {return std::get<0>(idx)*n[1]*n[2] + std::get<1>(idx)*n[2] + std::get<2>(idx);}
     inline idx_tuple_t unravel(size_t raveled_idx) const {
         size_t i,j,k;
-        i = raveled_idx / (n*n);
-        j = raveled_idx / n;
-        k = raveled_idx % n;
+        i = raveled_idx / (n[1]*n[2]);
+        j = raveled_idx / n[2];
+        k = raveled_idx % n[2];
         return {i,j,k};
     }
 
@@ -64,7 +70,7 @@ struct Index {
     }
 
     idx_tuple_t idx;
-    size_t n;
+    vector3i_t n;
 };
 
 double gaussian(double x, double y, double z, double sigma = 1.0, double mu = 0.5) {
@@ -81,20 +87,28 @@ T x2y2z2(T x, T y, T z) {
 }
 
 template<typename T>
+T xyz(T x, T y, T z) {
+    return x*y*z;
+}
+
+template<typename T>
 T x2y2z2_deriv(T x, T y, T z) {
     return 2.0*x+2.0*z;
+    //return 2.0*z;
 }
+
 
 
 template <typename T>
 class Field {
     public:
-        typedef Eigen::Vector3d vector3d_t;
-        typedef Eigen::Matrix3d matrix3d_t;
-        Field(size_t N, vector3d_t h) : N_m(N), h_m(h), f_m(std::vector<T>(N*N*N)){
-            hInv_m[0] = 1.0 / h[0];
-            hInv_m[1] = 1.0 / h[1];
-            hInv_m[2] = 1.0 / h[2];
+        // Constructs field on domain [0,1]^3
+        Field(vector3d_t h, size_t nghost=1) : h_m(h), nghost_m(nghost) {
+            hInv_m = h.cwiseInverse();
+            N_m = vector3d_t::Ones().cwiseProduct(hInv_m).cast<int>();
+            N_ext_m = N_m + vector3i_t::Constant(2*nghost);
+            
+            f_m = std::vector<T>(N_ext_m.prod());
         }
 
         void init(T val){
@@ -107,9 +121,9 @@ class Field {
         }
 
 		void init_with_function(std::function<T(T,T,T)> initFunc){
-            for(size_t i = 0; i < N_m; ++i){
-                for(size_t j = 0; j < N_m; ++j){
-                    for(size_t k = 0; k < N_m; ++k){
+            for(size_t i = nghost_m; i < N_ext_m[0]-nghost_m; ++i){
+                for(size_t j = nghost_m; j < N_ext_m[1]-nghost_m; ++j){
+                    for(size_t k = nghost_m; k < N_ext_m[2]-nghost_m; ++k){
                         const T x = h_m[0]*i;
                         const T y = h_m[1]*j;
                         const T z = h_m[2]*k;
@@ -122,6 +136,10 @@ class Field {
         void init_x2y2z2(){
             init_with_function([](T x, T y, T z){ return x2y2z2(x,y,z); });
         }
+
+        void init_xyz(){
+            init_with_function([](T x, T y, T z){ return xyz(x,y,z); });
+        }
         
         void init_x2y2z2_deriv(){
             init_with_function([](T x, T y, T z){ return x2y2z2_deriv(x,y,z); });
@@ -131,7 +149,9 @@ class Field {
             init_with_function([](T x, T y, T z){ return gaussian(x,y,z); });
         }
 
-        vector3d_t getMeshSpacing() const {return hInv_m;};
+        vector3d_t getInvMeshSpacing() const {return hInv_m;};
+        vector3i_t getN() const {return N_m;};
+        vector3i_t getN_ext() const {return N_ext_m;};
 
         T operator()(size_t i, size_t j, size_t k) const {return f_m[index(i,j,k)];};
 
@@ -142,8 +162,8 @@ class Field {
         T& operator()(Index idx) {return f_m[idx.ravel()];};
 
         void print(size_t slice_k) const {
-            for(size_t i = 0; i < N_m; ++i){
-                for(size_t j = 0; j < N_m; ++j){
+            for(size_t i = nghost_m; i < N_ext_m[0]-nghost_m; ++i){
+                for(size_t j = nghost_m; j < N_ext_m[1]-nghost_m; ++j){
                     std::cout << std::setprecision(2) << f_m[index(i,j,slice_k)] << " ";
                 }
                 std::cout << '\n';
@@ -154,11 +174,13 @@ class Field {
 
     private:
         inline size_t index(size_t i, size_t j, size_t k) const {
-            return i*N_m*N_m + j*N_m + k;
+            return i*N_ext_m[1]*N_ext_m[2] + j*N_ext_m[2] + k;
         }
 
         // Number of grid points in each dimension
-        const size_t N_m;
+        vector3i_t N_m;
+        size_t nghost_m;
+        vector3i_t N_ext_m;
         // Mesh widths in each dimension
         const vector3d_t h_m;
         vector3d_t hInv_m;
@@ -168,15 +190,16 @@ class Field {
 
 class MatrixField {
     public:
-        typedef Eigen::Vector3d vector3d_t;
-        typedef Eigen::Matrix3d matrix3d_t;
-        MatrixField(size_t N, vector3d_t h) : N_m(N), h_m(h), f_m(std::vector<matrix3d_t>(N*N*N)){
-            hInv_m[0] = 1.0 / h[0];
-            hInv_m[1] = 1.0 / h[1];
-            hInv_m[2] = 1.0 / h[2];
+        MatrixField(vector3d_t h, size_t nghost=1) : h_m(h), nghost_m(nghost) {
+            hInv_m = h.cwiseInverse();
+            N_m = vector3d_t::Ones().cwiseProduct(hInv_m).cast<int>();
+            N_ext_m = N_m + vector3i_t::Constant(2*nghost);
+            f_m = std::vector<matrix3d_t>(N_ext_m.prod());
         }
 
-        vector3d_t getMeshSpacing() const {return hInv_m;};
+        vector3d_t getInvMeshSpacing() const {return hInv_m;};
+        vector3i_t getN() const {return N_m;};
+        vector3i_t getN_ext() const {return N_ext_m;};
 
         matrix3d_t operator()(size_t i, size_t j, size_t k) const {return f_m[index(i,j,k)];};
 
@@ -187,11 +210,12 @@ class MatrixField {
         matrix3d_t& operator()(Index idx) {return f_m[idx.ravel()];};
 
 		// Initialize with hessian of gaussian defined by `gaussian`
-		void initGaussHess() {
+		void initHess(bool gauss_init = false) {
+            if(gauss_init){
 			double mu = 0.5;
-            for(size_t i = 0; i < N_m; ++i){
-                for(size_t j = 0; j < N_m; ++j){
-                    for(size_t k = 0; k < N_m; ++k){
+            for(size_t i = nghost_m; i < N_ext_m[0]-nghost_m; ++i){
+                for(size_t j = nghost_m; j < N_ext_m[1]-nghost_m; ++j){
+                        for(size_t k = nghost_m; k < N_ext_m[2]-nghost_m; ++k){
                         const double x = h_m[0]*i;
                         const double y = h_m[1]*j;
                         const double z = h_m[2]*k;
@@ -207,6 +231,21 @@ class MatrixField {
 							(x - mu) * (z - mu) * gaussian(x, y, z),         
 							(y - mu) * (z - mu) * gaussian(x, y, z),         
 							((z - mu) * (z - mu) - 1.0) * gaussian(x, y, z));
+                        }
+                    }
+                }
+            } else {
+            for(size_t i = nghost_m; i < N_ext_m[0]-nghost_m; ++i){
+                for(size_t j = nghost_m; j < N_ext_m[1]-nghost_m; ++j){
+                        for(size_t k = nghost_m; k < N_ext_m[2]-nghost_m; ++k){
+                            const double x = h_m[0]*i;
+                            const double y = h_m[1]*j;
+                            const double z = h_m[2]*k;
+
+                            f_m[index(i,j,k)] << 0.0, z, y,
+                                                  z,0.0, x,
+                                                  y, x, 0.0;
+                        }
                     }
                 }
             }
@@ -214,8 +253,8 @@ class MatrixField {
 
 
         void print(size_t slice_k) const {
-            for(size_t i = 0; i < N_m; ++i){
-                for(size_t j = 0; j < N_m; ++j){
+            for(size_t i = nghost_m; i < N_ext_m[0]-nghost_m; ++i){
+                for(size_t j = nghost_m; j < N_ext_m[1]-nghost_m; ++j){
                     std::cout << std::setprecision(2) << f_m[index(i,j,slice_k)] << " ";
                 }
                 std::cout << '\n';
@@ -226,16 +265,20 @@ class MatrixField {
 
     private:
         inline size_t index(size_t i, size_t j, size_t k) const {
-            return i*N_m*N_m + j*N_m + k;
+            return i*N_ext_m[1]*N_ext_m[2] + j*N_ext_m[2] + k;
         }
 
         // Number of grid points in each dimension
-        const size_t N_m;
+        vector3i_t N_m;
+        size_t nghost_m;
+        vector3i_t N_ext_m;
         // Mesh widths in each dimension
         const vector3d_t h_m;
         vector3d_t hInv_m;
         // Field data
         std::vector<matrix3d_t> f_m;
 };
+
+} // Mesh
 
 #endif // field_h
