@@ -50,9 +50,9 @@ int main(){
 	/////////////////////////////////////
     
 	// Matrix Fields
-	MatrixField mfield(h);
-	MatrixField mfield_result(h);
-	MatrixField mfield_exact(h);
+	Field<matrix3d_t> mfield(h);
+	Field<matrix3d_t> mfield_result(h);
+	Field<matrix3d_t> mfield_exact(h);
 
     N = field.getN();
     N_ext = field.getN_ext();
