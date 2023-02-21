@@ -12,11 +12,15 @@ enum DiffType {Centered, Forward, Backward, CenteredDeriv2};
 // Stencil definitions along a template specified dimension //
 //////////////////////////////////////////////////////////////
 
+// More stencils can be found at:
+// `https://en.wikipedia.org/wiki/Finite_difference_coefficient`
+
 template<Dim D, typename T, class Callable>
 inline T centered_stencil(const Index &idx, const T &hInv, const Callable &F){
     return 0.5 * hInv * (- F(idx.get_shifted<D>(-1)) + F(idx.get_shifted<D>(1)));
 }
 
+// Compact version of the `centered_stencil` for the 2nd derivative along the same dimension
 template<Dim D, typename T, class Callable>
 inline T centered_stencil_deriv2(const Index &idx, const T &hInv, const Callable &F){
     return hInv * hInv * (F(idx.get_shifted<D>(-1)) - 2.0*F(idx) + F(idx.get_shifted<D>(1)));
