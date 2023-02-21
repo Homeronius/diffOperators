@@ -33,15 +33,7 @@ typename std::enable_if<!std::numeric_limits<T>::is_integer, bool>::type
         || std::fabs(x-y) < std::numeric_limits<T>::min();
 }
 
-template<typename T>
-T relative_error(T x, T x_appr){ 
-    if (almost_equal(x, x_appr, 2)){
-        return 0.0;
-    } else {
-        return std::abs((x - x_appr) / x);
-    }
-}
-
+// Index struct to pass raveled / unraveled indices to operators / fields
 struct Index {
     typedef std::tuple<size_t,size_t,size_t> idx_tuple_t;
     Index(idx_tuple_t idx_arg, vector3i_t N) : idx(idx_arg), n(N) {}
@@ -73,61 +65,8 @@ struct Index {
     vector3i_t n;
 };
 
-/////////////////////////////////////////
-// Initial Conditions for Scalar Field //
-/////////////////////////////////////////
 
-double gaussian(double x, double y, double z, double sigma = 1.0, double mu = 0.5) {
-	double pi = std::acos(-1.0);
-    double prefactor = (1 / std::sqrt(2 * 2 * 2 * pi * pi * pi)) * (1 / (sigma * sigma * sigma));
-	double r2 = (x - mu) * (x - mu) + (y - mu) * (y - mu) + (z - mu) * (z - mu);
-
-	return -prefactor * std::exp(-r2 / (2 * sigma * sigma));
-}
-
-template<typename T>
-T x2y2z2(T x, T y, T z) {
-    return x*x*z+y*y+z*z*x;
-}
-
-template<typename T>
-T xyz(T x, T y, T z) {
-    return x*y*z;
-}
-
-template<typename T>
-T x2y2z2_deriv(T x, T y, T z) {
-    return 2.0*x+2.0*z;
-}
-
-/////////////////////////////////////////
-// Initial Conditions for Matrix Field //
-/////////////////////////////////////////
-
-matrix3d_t hessGaussian(double x, double y, double z){
-    double mu = 0.5;
-    matrix3d_t hess;
-    hess << ((x - mu) * (x - mu) - 1.0) * gaussian(x, y, z), 
-            (x - mu) * (y - mu) * gaussian(x, y, z),         
-            (x - mu) * (z - mu) * gaussian(x, y, z),
-            (x - mu) * (y - mu) * gaussian(x, y, z),         
-            ((y - mu) * (y - mu) - 1.0) * gaussian(x, y, z), 
-            (y - mu) * (z - mu) * gaussian(x, y, z),
-            (x - mu) * (z - mu) * gaussian(x, y, z),         
-            (y - mu) * (z - mu) * gaussian(x, y, z),         
-            ((z - mu) * (z - mu) - 1.0) * gaussian(x, y, z);
-    return hess;
-}
-
-matrix3d_t hessLinear(double x, double y, double z){
-    matrix3d_t hess;
-    hess << 0.0, z, y,
-             z,0.0, x,
-             y, x, 0.0;
-    return hess;
-}
-
-
+// Imitates IPPL::BareField class (very limited version of it)
 template <typename T>
 class BareField {
     public:
@@ -162,9 +101,19 @@ class BareField {
                 }
             }
 		}
+
+        double gaussian(double x, double y, double z, double sigma = 1.0, double mu = 0.5) const {
+            double pi = std::acos(-1.0);
+            double prefactor = (1 / std::sqrt(2 * 2 * 2 * pi * pi * pi)) * (1 / (sigma * sigma * sigma));
+            double r2 = (x - mu) * (x - mu) + (y - mu) * (y - mu) + (z - mu) * (z - mu);
+
+            return -prefactor * std::exp(-r2 / (2 * sigma * sigma));
+        }
+
         vector3d_t getInvMeshSpacing() const {return hInv_m;};
         vector3i_t getN() const {return N_m;};
         vector3i_t getN_ext() const {return N_ext_m;};
+        size_t getNghost() const {return nghost_m;};
 
         T operator()(size_t i, size_t j, size_t k) const {return f_m[index(i,j,k)];};
 
@@ -201,39 +150,76 @@ class BareField {
         std::vector<T> f_m;
 };
 
+// Specialization for Scalar Fields
 template<typename T>
 class Field : public BareField<T> {
     public:
         Field(vector3d_t h, size_t nghost=1) : BareField<T>(h, nghost) {}
 
-        void init_x2y2z2(){
-            this->template init_with_function<T,T>([](T x, T y, T z) -> T { return x2y2z2(x,y,z); });
+        /////////////////////////////////////////
+        // Initial Conditions for Scalar Field //
+        /////////////////////////////////////////
+
+        T x2y2z2(T x, T y, T z) const  {
+            return x*x*z+y*y+z*z*x;
         }
 
-        void init_xyz(){
-            this->template init_with_function<T,T>([](T x, T y, T z) -> T { return xyz(x,y,z); });
-        }
-        
-        void init_x2y2z2_deriv(){
-            this->template init_with_function<T,T>([](T x, T y, T z) -> T { return x2y2z2_deriv(x,y,z); });
+        T xyz(T x, T y, T z) const  {
+            return x*y*z;
         }
 
-        void init_gaussian(){
-            this->template init_with_function<T,T>([](T x, T y, T z) -> T { return gaussian(x,y,z); });
+        T x2y2z2_deriv(T x, T y, T z) const {
+            return 2.0*x+2.0*z;
         }
+
+        void init_x2y2z2(){ this->template init_with_function<T,T>([this](T x, T y, T z) -> T { return x2y2z2(x,y,z); }); }
+
+        void init_xyz(){ this->template init_with_function<T,T>([this](T x, T y, T z) -> T { return xyz(x,y,z); }); }
+
+        void init_x2y2z2_deriv(){ this->template init_with_function<T,T>([this](T x, T y, T z) -> T { return x2y2z2_deriv(x,y,z); }); }
+
+        void init_gaussian(){ this->template init_with_function<T,T>([this](T x, T y, T z) -> T { return this->gaussian(x,y,z); }); }
 }; 
 
+// Specialization for Matrix Fields
 template<>
 class Field<matrix3d_t> : public BareField<matrix3d_t> {
     public:
         Field(vector3d_t h, size_t nghost=1) : BareField<matrix3d_t>(h, nghost) {}
+
+        /////////////////////////////////////////
+        // Initial Conditions for Matrix Field //
+        /////////////////////////////////////////
+
+        matrix3d_t hessGaussian(double x, double y, double z) const {
+            double mu = 0.5;
+            matrix3d_t hess;
+            hess << ((x - mu) * (x - mu) - 1.0) * gaussian(x, y, z),
+                    (x - mu) * (y - mu) * gaussian(x, y, z),
+                    (x - mu) * (z - mu) * gaussian(x, y, z),
+                    (x - mu) * (y - mu) * gaussian(x, y, z),
+                    ((y - mu) * (y - mu) - 1.0) * gaussian(x, y, z),
+                    (y - mu) * (z - mu) * gaussian(x, y, z),
+                    (x - mu) * (z - mu) * gaussian(x, y, z),
+                    (y - mu) * (z - mu) * gaussian(x, y, z),
+                    ((z - mu) * (z - mu) - 1.0) * gaussian(x, y, z);
+            return hess;
+        }
+
+        matrix3d_t hessLinear(double x, double y, double z) const {
+            matrix3d_t hess;
+            hess << 0.0, z, y,
+                     z,0.0, x,
+                     y, x, 0.0;
+            return hess;
+        }
         
 		// Initialize with hessian of gaussian defined by `gaussian`
 		void initHess(bool gauss_init = false) {
             if(gauss_init){
-                this->init_with_function<matrix3d_t, double>([](double x, double y, double z){ return hessGaussian(x,y,z); });
+                this->init_with_function<matrix3d_t, double>([this](double x, double y, double z){ return hessGaussian(x,y,z); });
             } else {
-                this->init_with_function<matrix3d_t, double>([](double x, double y, double z){ return hessLinear(x,y,z); });
+                this->init_with_function<matrix3d_t, double>([this](double x, double y, double z){ return hessLinear(x,y,z); });
             }
 		}
 };

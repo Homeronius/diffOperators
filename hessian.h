@@ -8,7 +8,10 @@ using namespace Mesh;
 
 enum DiffType {Centered, Forward, Backward, CenteredDeriv2};
 
-// Stencil definitions along a template specified dimension
+//////////////////////////////////////////////////////////////
+// Stencil definitions along a template specified dimension //
+//////////////////////////////////////////////////////////////
+
 template<Dim D, typename T, class Callable>
 inline T centered_stencil(const Index &idx, const T &hInv, const Callable &F){
     return 0.5 * hInv * (- F(idx.get_shifted<D>(-1)) + F(idx.get_shifted<D>(1)));
@@ -30,8 +33,11 @@ inline T backward_stencil(const Index &idx, const T &hInv, const Callable &F){
 }
 
 
-// Specialization to chain stencil operators
-// This only works if the container the operators are applied to has an overloaded `operator()`
+///////////////////////////////////////////////
+// Specialization to chain stencil operators //
+///////////////////////////////////////////////
+
+// This only works if the container the operators are applied to has an overloaded `operator()` //
 template<Dim D, typename T, DiffType Diff, class C>
 class DiffOpChain {
     public: 
@@ -112,28 +118,5 @@ class GeneralizedHessOp {
         vector3d_t yvector_m = {0.0, 1.0, 0.0};
         vector3d_t zvector_m = {0.0, 0.0, 1.0};
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #endif // hessian_h
